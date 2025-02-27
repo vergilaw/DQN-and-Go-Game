@@ -1,6 +1,6 @@
 import pygame
 
-WINDOW_SIZE = 800
+WINDOW_SIZE = 1000
 BOARD_SIZES = [9, 13, 19]
 CELL_SIZE = 40
 
