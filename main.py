@@ -4,6 +4,7 @@ from bot import MCTS
 import pygame
 from constants import CELL_SIZE, WINDOW_SIZE
 import time
+import threading
 
 
 def main():
@@ -22,11 +23,59 @@ def main():
 
     bot = None
     if play_with_bot:
-        bot = MCTS(time_limit=5.0)  # thinking time
+        bot = MCTS(time_limit=15.0)
+
 
     bot_pass_message = None
     bot_pass_time = 0
     message_duration = 2.0
+
+    def handle_bot_turn():
+        nonlocal bot_pass_message, bot_pass_time, running
+
+        game.draw()
+        font = pygame.font.Font(None, 36)
+        thinking_text = font.render("Bot thinking...", True, (255, 0, 0))
+        game.screen.blit(thinking_text, (WINDOW_SIZE // 2 - 100, WINDOW_SIZE - 50))
+        pygame.display.flip()
+
+        bot_move = [None]
+
+        def bot_think():
+            bot_move[0] = bot.get_move(game)
+
+        bot_thread = threading.Thread(target=bot_think)
+        bot_thread.start()
+
+        thinking_dots = 0
+        clock = pygame.time.Clock()
+
+        while bot_thread.is_alive():
+            # waiting
+            for waiting_event in pygame.event.get():
+                if waiting_event.type == pygame.QUIT:
+                    running = False
+                    pygame.quit()
+                    return False  #
+
+            # Animation Thinking
+            game.draw()
+            thinking_dots = (thinking_dots + 1) % 4
+            dots = "." * thinking_dots
+            thinking_text = font.render(f"Bot thinking{dots}", True, (255, 0, 0))
+            game.screen.blit(thinking_text, (WINDOW_SIZE // 2 - 100, WINDOW_SIZE - 50))
+            pygame.display.flip()
+
+            #limit fps
+            clock.tick(5)
+
+        if bot_move[0]:
+            if bot_move[0] == 'pass':
+                bot_pass_message = "Bot PASSED!"
+                bot_pass_time = time.time()
+            game.make_move(bot_move[0])
+
+        return True  # cont game
 
     while running:
         for event in pygame.event.get():
@@ -37,23 +86,19 @@ def main():
                 if event.key == pygame.K_SPACE:  # Pass
                     game.make_move('pass')
                     if play_with_bot and game.current_player == 'white' and not game.show_score:
-                        pygame.display.flip()
-                        bot_move = bot.get_move(game)
-                        if bot_move:
-                            if bot_move == 'pass':
+                        if not handle_bot_turn():
+                            return
 
-                                bot_pass_message = "Bot PASSED!"
-                                bot_pass_time = time.time()
-                            game.make_move(bot_move)
                 elif event.key == pygame.K_r:  # Reset game
                     game.reset_game()
-                    bot_pass_message = None
+                    bot_pass_message = None  # Xóa thông báo khi reset game
+
                 elif event.key == pygame.K_m:  # Back to menu
                     board_size, play_with_bot = menu.run()
                     if board_size is not None:
                         game.change_board_size(board_size)
                         if play_with_bot:
-                            bot = MCTS(time_limit=2.0)
+                            bot = MCTS(time_limit=5.0)
                     bot_pass_message = None
 
             elif event.type == pygame.MOUSEBUTTONDOWN and not game.show_score:
@@ -65,27 +110,13 @@ def main():
 
                     if 0 <= grid_x < game.board.size and 0 <= grid_y < game.board.size:
                         if game.make_move((grid_x, grid_y)):
-                            # bot
+                            # bot turn
                             if play_with_bot and game.current_player == 'white' and not game.show_score:
-                                game.draw()
-                                pygame.display.flip()
-
-                                font = pygame.font.Font(None, 36)
-                                thinking_text = font.render("Bot thinking...", True, (255, 0, 0))
-                                game.screen.blit(thinking_text, (WINDOW_SIZE // 2 - 100, WINDOW_SIZE - 50))
-                                pygame.display.flip()
-
-                                bot_move = bot.get_move(game)
-                                if bot_move:
-                                    if bot_move == 'pass':
-                                        #Pass
-                                        bot_pass_message = "Bot PASSED!"
-                                        bot_pass_time = time.time()
-                                    game.make_move(bot_move)
+                                if not handle_bot_turn():
+                                    return
 
         game.draw()
-
-        # Hiển thị thông báo bot pass nếu có
+        #nofi pass
         if bot_pass_message and time.time() - bot_pass_time < message_duration:
             font = pygame.font.Font(None, 48)
             pass_text = font.render(bot_pass_message, True, (255, 0, 0))
