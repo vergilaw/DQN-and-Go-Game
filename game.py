@@ -1,3 +1,5 @@
+import numpy as np
+
 from constants import *
 from board import Board
 from copy import deepcopy
@@ -19,6 +21,110 @@ class GoGame:
         self.captured = {'black': 0, 'white': 0}
         self.show_score = False
 
+    # Các phương thức hiện có giữ nguyên: would_be_suicide, is_ko, capture_stones,
+    # change_board_size, reset_game, calculate_score, make_move, draw
+
+    def get_state(self):
+        """Trả về trạng thái bàn cờ dưới dạng ma trận 2D"""
+        state = np.zeros((self.board_size, self.board_size), dtype=int)
+        for y in range(self.board_size):
+            for x in range(self.board_size):
+                if self.board.board[y][x] == 'black':
+                    state[y][x] = 1
+                elif self.board.board[y][x] == 'white':
+                    state[y][x] = -1
+        return state
+
+    def get_reward(self, player):
+        """Tính phần thưởng cho người chơi"""
+        if self.show_score:
+            scores = self.calculate_score()
+            opponent = 'white' if player == 'black' else 'black'
+            if scores[player] > scores[opponent]:
+                return 10  # Thưởng lớn khi thắng
+            else:
+                return -10  # Phạt lớn khi thua
+
+        # Phần thưởng trung gian
+        reward = 0
+        opponent = 'white' if player == 'black' else 'black'
+
+        # Thưởng khi bắt được quân
+        if self.captured[player] > 0:
+            reward += self.captured[player] * 0.5  # Tăng phần thưởng cho việc bắt quân
+
+        # Phạt khi bị bắt quân
+        if self.captured[opponent] > 0:
+            reward -= self.captured[opponent] * 0.1
+
+        # Phạt khi đánh vào lãnh thổ đã chiếm
+        if self.last_move:
+            x, y = self.last_move
+
+            # Kiểm tra xem nước đi này có ăn được quân đối phương không
+            captured_stones = False
+            for dx, dy in [(0, 1), (1, 0), (0, -1), (-1, 0)]:
+                nx, ny = x + dx, y + dy
+                if (0 <= nx < self.board.size and 0 <= ny < self.board.size and
+                        self.board.board[ny][nx] == opponent):
+                    group = self.board.get_group(nx, ny)
+                    if self.board.count_liberties(group) == 0:
+                        captured_stones = True
+                        break
+
+            # Nếu nước đi này ăn được quân đối phương, thưởng lớn
+            if captured_stones:
+                reward += 1.0
+            # Ngược lại, nếu đi vào lãnh thổ của chính mình mà không ăn được quân
+            elif self.board.territory[y][x] == player:
+                # Kiểm tra xem có quân đối phương xung quanh không
+                has_opponent_nearby = False
+                for dx, dy in [(0, 1), (1, 0), (0, -1), (-1, 0)]:
+                    nx, ny = x + dx, y + dy
+                    if (0 <= nx < self.board.size and 0 <= ny < self.board.size and
+                            self.board.board[ny][nx] == opponent):
+                        has_opponent_nearby = True
+                        break
+
+                # Nếu không có quân đối phương xung quanh, phạt vì đi vào lãnh thổ không cần thiết
+                if not has_opponent_nearby:
+                    reward -= 1.0
+                # Nếu có quân đối phương xung quanh, thưởng vì bảo vệ lãnh thổ
+                else:
+                    reward += 0.2
+
+        # THÊM MỚI: Phần thưởng khi chặn đối phương xây dựng lãnh thổ
+        if self.last_move:
+            x, y = self.last_move
+            # Kiểm tra xem nước đi có phá vỡ lãnh thổ tiềm năng của đối phương không
+            if self.board.territory[y][x] == opponent:
+                reward += 0.3  # Thưởng khi phá vỡ lãnh thổ của đối phương
+
+        # THÊM MỚI: Phần thưởng khi bảo vệ quân của mình khỏi bị ăn
+        if self.last_move:
+            x, y = self.last_move
+            # Kiểm tra các nhóm quân xung quanh nước đi hiện tại
+            for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
+                nx, ny = x + dx, y + dy
+                if (0 <= nx < self.board.size and 0 <= ny < self.board.size and
+                        self.board.board[ny][nx] == player):
+                    group = self.board.get_group(nx, ny)
+                    liberties = self.board.count_liberties(group)
+                    # Nếu nhóm quân chỉ có 1 khí và nước đi hiện tại đã thêm khí
+                    if liberties == 1:
+                        # Kiểm tra xem nước đi hiện tại có phải là khí cuối cùng không
+                        for gx, gy in group:
+                            for gdx, gdy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
+                                liberty_x, liberty_y = gx + gdx, gy + gdy
+                                if (0 <= liberty_x < self.board.size and
+                                        0 <= liberty_y < self.board.size and
+                                        self.board.board[liberty_y][liberty_x] is None and
+                                        (liberty_x, liberty_y) == (x, y)):
+                                    reward += 0.4  # Thưởng khi cứu quân của mình khỏi bị ăn
+                                    break
+
+        return reward
+
     def would_be_suicide(self, x, y):
         """Kiểm tra nước đi có tự sát không"""
         self.board.board[y][x] = self.current_player
@@ -34,6 +140,25 @@ class GoGame:
         temp_board = deepcopy(self.board.board)
         temp_board[y][x] = self.current_player
         return any(temp_board == state for state in self.game_states[-8:])
+
+    def is_eye(self, x, y, player):
+        """Kiểm tra xem một điểm có phải là mắt (eye) không"""
+        if self.board.board[y][x] is not None:
+            return False
+
+        # Kiểm tra xem tất cả các điểm xung quanh có phải là quân của player không
+        surrounding_player = 0
+        surrounding_total = 0
+
+        for dx, dy in [(0, 1), (1, 0), (0, -1), (-1, 0)]:
+            nx, ny = x + dx, y + dy
+            if 0 <= nx < self.board.size and 0 <= ny < self.board.size:
+                surrounding_total += 1
+                if self.board.board[ny][nx] == player:
+                    surrounding_player += 1
+
+        # Nếu tất cả các điểm xung quanh là quân của player, đây là một mắt
+        return surrounding_player == surrounding_total and surrounding_total > 0
 
     def capture_stones(self, x, y):
         """Bắt quân không còn khí"""
