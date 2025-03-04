@@ -8,12 +8,12 @@ class Menu:
         self.font = pygame.font.Font(None, 48)
         self.selected_size = None
         self.play_with_bot = False
-        self.bot_vs_bot = False  # Thêm trạng thái bot vs bot
+        self.bot_vs_bot = False
 
         button_height = 60
         button_width = 200
         spacing = 30
-        start_y = WINDOW_SIZE // 2 - (5 * button_height + 4 * spacing) // 2  # Điều chỉnh để thêm nút mới
+        start_y = WINDOW_SIZE // 2 - (5 * button_height + 4 * spacing) // 2
 
         self.buttons = [
             {
@@ -73,7 +73,6 @@ class Menu:
             text_rect = text.get_rect(center=button['rect'].center)
             self.screen.blit(text, text_rect)
 
-            # Hiển thị trạng thái bật/tắt cho Play with Bot và Bot vs Bot
             if button['bot'] and self.play_with_bot:
                 pygame.draw.circle(self.screen, GREEN,
                                    (button['rect'].right + 20, button['rect'].centery), 10)
@@ -90,12 +89,12 @@ class Menu:
                 if button['rect'].collidepoint(mouse_pos):
                     if button['bot']:
                         self.play_with_bot = not self.play_with_bot
-                        if self.play_with_bot and self.bot_vs_bot:  # Tắt bot_vs_bot nếu play_with_bot bật
+                        if self.play_with_bot and self.bot_vs_bot:
                             self.bot_vs_bot = False
                         return False
                     elif button['bot_vs_bot']:
                         self.bot_vs_bot = not self.bot_vs_bot
-                        if self.bot_vs_bot and self.play_with_bot:  # Tắt play_with_bot nếu bot_vs_bot bật
+                        if self.bot_vs_bot and self.play_with_bot:
                             self.play_with_bot = False
                         return False
                     else:

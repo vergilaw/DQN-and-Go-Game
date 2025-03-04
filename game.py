@@ -21,8 +21,6 @@ class GoGame:
         self.captured = {'black': 0, 'white': 0}
         self.show_score = False
 
-    # Các phương thức hiện có giữ nguyên: would_be_suicide, is_ko, capture_stones,
-    # change_board_size, reset_game, calculate_score, make_move, draw
 
     def get_state(self):
         """Trả về trạng thái bàn cờ dưới dạng ma trận 2D"""
@@ -41,17 +39,16 @@ class GoGame:
             scores = self.calculate_score()
             opponent = 'white' if player == 'black' else 'black'
             if scores[player] > scores[opponent]:
-                return 10  # Thưởng lớn khi thắng
+                return 10
             else:
-                return -10  # Phạt lớn khi thua
+                return -10
 
-        # Phần thưởng trung gian
         reward = 0
         opponent = 'white' if player == 'black' else 'black'
 
         # Thưởng khi bắt được quân
         if self.captured[player] > 0:
-            reward += self.captured[player] * 0.5  # Tăng phần thưởng cho việc bắt quân
+            reward += self.captured[player] * 0.5
 
         # Phạt khi bị bắt quân
         if self.captured[opponent] > 0:
@@ -93,26 +90,23 @@ class GoGame:
                 else:
                     reward += 0.2
 
-        # THÊM MỚI: Phần thưởng khi chặn đối phương xây dựng lãnh thổ
+        # chặn đối phương xây dựng lãnh thổ
         if self.last_move:
             x, y = self.last_move
-            # Kiểm tra xem nước đi có phá vỡ lãnh thổ tiềm năng của đối phương không
             if self.board.territory[y][x] == opponent:
-                reward += 0.3  # Thưởng khi phá vỡ lãnh thổ của đối phương
+                reward += 0.3
 
-        # THÊM MỚI: Phần thưởng khi bảo vệ quân của mình khỏi bị ăn
+        # Phần thưởng khi bảo vệ quân của mình khỏi bị
         if self.last_move:
             x, y = self.last_move
-            # Kiểm tra các nhóm quân xung quanh nước đi hiện tại
             for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
                 nx, ny = x + dx, y + dy
                 if (0 <= nx < self.board.size and 0 <= ny < self.board.size and
                         self.board.board[ny][nx] == player):
                     group = self.board.get_group(nx, ny)
                     liberties = self.board.count_liberties(group)
-                    # Nếu nhóm quân chỉ có 1 khí và nước đi hiện tại đã thêm khí
                     if liberties == 1:
-                        # Kiểm tra xem nước đi hiện tại có phải là khí cuối cùng không
+                        # last chi check
                         for gx, gy in group:
                             for gdx, gdy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
                                 liberty_x, liberty_y = gx + gdx, gy + gdy
@@ -146,7 +140,6 @@ class GoGame:
         if self.board.board[y][x] is not None:
             return False
 
-        # Kiểm tra xem tất cả các điểm xung quanh có phải là quân của player không
         surrounding_player = 0
         surrounding_total = 0
 
@@ -157,7 +150,7 @@ class GoGame:
                 if self.board.board[ny][nx] == player:
                     surrounding_player += 1
 
-        # Nếu tất cả các điểm xung quanh là quân của player, đây là một mắt
+        # check eye
         return surrounding_player == surrounding_total and surrounding_total > 0
 
     def capture_stones(self, x, y):
@@ -216,13 +209,13 @@ class GoGame:
         if self.board.board[y][x] is not None:
             return False
 
-        # Kiểm tra luật tự sát và đánh quẩn
+
         if self.would_be_suicide(x, y) or self.is_ko(x, y):
             return False
 
         # Lưu trạng thái và đặt quân
         self.game_states.append(deepcopy(self.board.board))
-        if len(self.game_states) > 8:  # Giới hạn số trạng thái lưu trữ
+        if len(self.game_states) > 8:
             self.game_states.pop(0)
 
         self.board.board[y][x] = self.current_player
@@ -249,7 +242,7 @@ class GoGame:
                              (self.board.margin + i * CELL_SIZE, self.board.margin),
                              (self.board.margin + i * CELL_SIZE, self.board.margin + self.board.grid_size))
 
-        # Vẽ điểm hoshi
+        # Vẽ hoshi
         if self.board.size == 19:
             hoshi_points = [3, 9, 15]
         elif self.board.size == 13:
@@ -278,7 +271,7 @@ class GoGame:
                                      (pos_x - CELL_SIZE // 2, pos_y - CELL_SIZE // 2,
                                       CELL_SIZE, CELL_SIZE), 0)
 
-        # Vẽ nước đi cuối cùng
+
         if self.last_move:
             x, y = self.last_move
             pygame.draw.circle(self.screen, RED,

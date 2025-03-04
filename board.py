@@ -69,7 +69,6 @@ class Board:
 
             return territory, borders
 
-        # Tìm tất cả vùng trống
         for y in range(self.size):
             for x in range(self.size):
                 if self.board[y][x] is None and (x, y) not in visited:

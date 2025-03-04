@@ -13,15 +13,15 @@ class DQNAgent:
         self.board_size = board_size
         self.action_size = board_size * board_size + 1
         self.memory = deque(maxlen=5000)
-        self.gamma = 0.98  # Tăng discount factor
+        self.gamma = 0.98
         self.epsilon = 1.0
-        self.epsilon_min = 0.05  # Tăng epsilon min để duy trì khám phá
-        self.epsilon_decay = 0.9995  # Giảm chậm hơn
-        self.learning_rate = 0.0005  # Giảm learning rate
-        self.update_target_frequency = 200  # Cập nhật target model sau mỗi n bước
+        self.epsilon_min = 0.05
+        self.epsilon_decay = 0.9995
+        self.learning_rate = 0.0005
+        self.update_target_frequency = 200
         self.step_counter = 0
 
-        # Phần GPU detection giữ nguyên
+        #GPU detection
         gpus = tf.config.list_physical_devices('GPU')
         if gpus:
             print(f"GPU detected: {gpus}")
@@ -43,16 +43,15 @@ class DQNAgent:
 
     def _build_model(self):
         model = Sequential()
-        # Giảm bớt số lượng bộ lọc
         model.add(Input(shape=(self.board_size, self.board_size, 1)))
-        model.add(Conv2D(32, (3, 3), padding='same', activation='relu'))  # Giảm từ 64 xuống 32
-        model.add(Conv2D(32, (3, 3), padding='same', activation='relu'))  # Giảm từ 64 xuống 32
-        model.add(Conv2D(64, (3, 3), padding='same', activation='relu'))  # Giảm từ 128 xuống 64
-        model.add(Flatten())  # Bỏ lớp Conv2D thứ 4
-        model.add(Dense(128, activation='relu'))  # Giảm từ 256 xuống 128
+        model.add(Conv2D(32, (3, 3), padding='same', activation='relu'))
+        model.add(Conv2D(32, (3, 3), padding='same', activation='relu'))
+        model.add(Conv2D(64, (3, 3), padding='same', activation='relu'))
+        model.add(Flatten())
+        model.add(Dense(128, activation='relu'))
         model.add(Dense(self.action_size, activation='linear'))
 
-        # Sử dụng optimizer với clipnorm để tránh exploding gradients
+        # avoid exploding gradients
         optimizer = Adam(learning_rate=self.learning_rate, clipnorm=1.0)
         model.compile(loss='mse', optimizer=optimizer)
 
@@ -66,21 +65,18 @@ class DQNAgent:
         self.memory.append((state, action, reward, next_state, done))
 
     def act(self, state, training=True):
-        # Thêm tham số training để có thể tắt exploration khi đánh giá
         if training and np.random.rand() <= self.epsilon:
             return random.randrange(self.action_size)
 
-        # Thêm batch dimension nếu cần
         if len(state.shape) == 3:
             state = np.expand_dims(state, axis=0)
 
         with tf.device('/GPU:0' if tf.config.list_physical_devices('GPU') else '/CPU:0'):
             act_values = self.model.predict(state, verbose=0)
 
-        # Lọc các nước đi không hợp lệ (nếu có thông tin)
         return np.argmax(act_values[0])
 
-    def replay(self, batch_size=64):  # Tăng batch size
+    def replay(self, batch_size=64):
         if len(self.memory) < batch_size:
             return
 
@@ -93,30 +89,24 @@ class DQNAgent:
 
         # Double DQN implementation
         with tf.device('/GPU:0' if tf.config.list_physical_devices('GPU') else '/CPU:0'):
-            # Chọn action từ model chính
             q_values = self.model.predict(next_states, verbose=0)
             best_actions = np.argmax(q_values, axis=1)
 
-            # Lấy giá trị Q từ target model
             target_q_values = self.target_model.predict(next_states, verbose=0)
 
-            # Tính toán target Q values
             targets = rewards + self.gamma * np.array([target_q_values[i, best_actions[i]] * (1 - dones[i])
                                                        for i in range(batch_size)])
 
-            # Cập nhật model
             target_f = self.model.predict(states, verbose=0)
             for i, action in enumerate(actions):
                 target_f[i][action] = targets[i]
 
             history = self.model.fit(states, target_f, epochs=1, verbose=0, batch_size=batch_size)
 
-        # Cập nhật target model định kỳ
         self.step_counter += 1
         if self.step_counter % self.update_target_frequency == 0:
             self.update_target_model()
 
-        # Giảm epsilon
         if self.epsilon > self.epsilon_min:
             self.epsilon *= self.epsilon_decay
 

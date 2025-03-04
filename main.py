@@ -38,11 +38,9 @@ def main():
     message_duration = 2.0
     move_count = 0
     max_moves = board_size * board_size * 4
-    bot_delay = 0.05  # Delay để theo dõi trận đấu
+    bot_delay = 0.05
     clock = pygame.time.Clock()
-    bot_thinking = False  # Trạng thái bot đang suy nghĩ
-
-    # Trong main.py, thay đổi hàm handle_bot_turn:
+    bot_thinking = False
 
     def handle_bot_turn(bot, player):
         nonlocal bot_pass_message, bot_pass_time, move_count, bot_thinking
@@ -299,7 +297,7 @@ def main():
         move_text = game.font.render(f"Moves: {move_count}/{max_moves}", True, BLACK)
         game.screen.blit(move_text, (10, 70))
 
-        # Hiển thị thông báo "Bot thinking" khi bot đang xử lý
+
         if bot_thinking:
             thinking_text = game.font.render("Bot thinking...", True, (255, 0, 0))
             game.screen.blit(thinking_text, (WINDOW_SIZE // 2 - 100, WINDOW_SIZE - 50))
