@@ -208,8 +208,6 @@ class GoGame:
         x, y = pos
         if self.board.board[y][x] is not None:
             return False
-
-
         if self.would_be_suicide(x, y) or self.is_ko(x, y):
             return False
 

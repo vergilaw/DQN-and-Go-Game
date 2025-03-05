@@ -17,8 +17,8 @@ class DQNAgent:
         self.epsilon = 1.0
         self.epsilon_min = 0.05
         self.epsilon_decay = 0.9995
-        self.learning_rate = 0.0005
-        self.update_target_frequency = 200
+        self.learning_rate = 0.001
+        self.update_target_frequency = 500
         self.step_counter = 0
 
         #GPU detection

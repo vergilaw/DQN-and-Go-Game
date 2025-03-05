@@ -56,7 +56,6 @@ def main():
         max_attempts = board_size * board_size  # Số lần thử tối đa
         attempts = 0
 
-        # Danh sách các nước đi không hợp lệ để loại trừ
         invalid_moves = []
         # Danh sách các nước đi ưu tiên (để ăn quân xâm nhập)
         priority_moves = []
@@ -319,9 +318,9 @@ def main():
         pygame.display.flip()
         clock.tick(60)
 
-    if bot1 is not None:
+    if bot1 is not None and board_size is not None:
         bot1.save_model(f"bot1_model_{board_size}x{board_size}.keras")
-    if bot2 is not None:
+    if bot2 is not None and board_size is not None:
         bot2.save_model(f"bot2_model_{board_size}x{board_size}.keras")
     pygame.quit()
 
