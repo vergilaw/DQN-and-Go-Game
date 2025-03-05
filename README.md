@@ -4,14 +4,14 @@
 
 This is a Go board game with a top-down 2D graphic interface, developed in Python. The game supports:
 
-- Playing against a bot using the Monte Carlo Tree Search (MCTS) algorithm
+- Playing against a bot using Q-learning
 - 1v1 mode for two human players.
 
 ## Key Features
 
 - **Intuitive 2D Interface**: Clearly displays the board and stones.
 - **Various Game Modes**:
-  - Play against AI (MCTS) 
+  - Play against Bot
   - Play against another human on the same device.
 - **Game Rule Enforcement**: Automatically checks valid moves, calculates scores, and captures stones.
 - **Save and Load Game**: Allows resuming unfinished games.
