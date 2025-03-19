@@ -23,7 +23,7 @@ This is a Go board game with a top-down 2D graphic interface, developed in Pytho
 - Python 3.8 or later
 - Required libraries:
   ```sh
-  pip install pygame numpy
+  pygame numpy time threading tensorflow os deepcopy 
   ```
 
 ## Usage Guide
