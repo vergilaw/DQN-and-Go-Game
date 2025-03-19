@@ -1,13 +1,18 @@
 import pygame
 
 WINDOW_SIZE = 1000
-BOARD_SIZES = [9, 13, 19]
-CELL_SIZE = 40
-
-# Màu sắc
+BOARD_COLOR = (219, 177, 123)  # Light brown
 BLACK = (0, 0, 0)
 WHITE = (255, 255, 255)
-BROWN = (205, 133, 63)
 RED = (255, 0, 0)
 BLUE = (0, 0, 255)
-GREEN = (0, 255, 0)
+BROWN = (165, 124, 82)  # Darker brown for menu background
+LIGHT_BROWN = (219, 177, 123)  # Light brown for buttons
+GRAY = (150, 150, 150)
+CELL_SIZE = 40
+BUTTON_HEIGHT = 60
+BUTTON_WIDTH = 400
+BUTTON_SPACING = 30
+FONT_SIZE_LARGE = 48
+FONT_SIZE_MEDIUM = 36
+FONT_SIZE_SMALL = 24

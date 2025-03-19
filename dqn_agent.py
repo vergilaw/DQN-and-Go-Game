@@ -21,7 +21,7 @@ class DQNAgent:
         self.update_target_frequency = 500
         self.step_counter = 0
 
-        #GPU detection
+        # GPU detection
         gpus = tf.config.list_physical_devices('GPU')
         if gpus:
             print(f"GPU detected: {gpus}")
@@ -64,17 +64,50 @@ class DQNAgent:
     def remember(self, state, action, reward, next_state, done):
         self.memory.append((state, action, reward, next_state, done))
 
+    # Add this new method with the @tf.function decorator
+    @tf.function(reduce_retracing=True)
+    def predict_action(self, state):
+        """Make predictions with the model using reduced retracing."""
+        return self.model(state, training=False)
+
+    # Add this new method with the @tf.function decorator
+    @tf.function(reduce_retracing=True)
+    def predict_target(self, state):
+        """Make predictions with the target model using reduced retracing."""
+        return self.target_model(state, training=False)
+
     def act(self, state, training=True):
         if training and np.random.rand() <= self.epsilon:
             return random.randrange(self.action_size)
 
-        if len(state.shape) == 3:
+        # Ensure consistent tensor shape
+        if len(state.shape) == 2:  # If shape is (board_size, board_size)
+            state = np.expand_dims(np.expand_dims(state, axis=0), axis=-1)
+        elif len(state.shape) == 3:  # If shape is (board_size, board_size, 1)
             state = np.expand_dims(state, axis=0)
 
+        # Convert to tensor
+        state_tensor = tf.convert_to_tensor(state, dtype=tf.float32)
+
         with tf.device('/GPU:0' if tf.config.list_physical_devices('GPU') else '/CPU:0'):
-            act_values = self.model.predict(state, verbose=0)
+            # Use the decorated function instead of model.predict
+            act_values = self.predict_action(state_tensor)
 
         return np.argmax(act_values[0])
+
+    # Add this method with the @tf.function decorator for training
+    @tf.function(reduce_retracing=True)
+    def train_step(self, states, target_f):
+        """Perform a single training step with reduced retracing."""
+        with tf.GradientTape() as tape:
+            predictions = self.model(states, training=True)
+            loss = tf.keras.losses.MSE(target_f, predictions)
+            # You can also use the following for a more direct approach:
+            # loss = tf.reduce_mean(tf.square(target_f - predictions))
+
+        gradients = tape.gradient(loss, self.model.trainable_variables)
+        self.model.optimizer.apply_gradients(zip(gradients, self.model.trainable_variables))
+        return loss
 
     def replay(self, batch_size=64):
         if len(self.memory) < batch_size:
@@ -87,21 +120,33 @@ class DQNAgent:
         rewards = np.array([item[2] for item in minibatch])
         dones = np.array([item[4] for item in minibatch])
 
-        # Double DQN implementation
+        # Convert to tensors
+        states_tensor = tf.convert_to_tensor(states, dtype=tf.float32)
+        next_states_tensor = tf.convert_to_tensor(next_states, dtype=tf.float32)
+
         with tf.device('/GPU:0' if tf.config.list_physical_devices('GPU') else '/CPU:0'):
-            q_values = self.model.predict(next_states, verbose=0)
-            best_actions = np.argmax(q_values, axis=1)
+            # Use decorated functions instead of predict
+            q_values = self.predict_action(next_states_tensor)
+            best_actions = tf.argmax(q_values, axis=1).numpy()
 
-            target_q_values = self.target_model.predict(next_states, verbose=0)
+            target_q_values = self.predict_target(next_states_tensor)
 
-            targets = rewards + self.gamma * np.array([target_q_values[i, best_actions[i]] * (1 - dones[i])
+            # Calculate targets
+            targets = rewards + self.gamma * np.array([target_q_values[i, best_actions[i]].numpy() * (1 - dones[i])
                                                        for i in range(batch_size)])
 
-            target_f = self.model.predict(states, verbose=0)
+            # Get current predictions for all actions
+            target_f = self.predict_action(states_tensor).numpy()
+
+            # Update only the actions that were taken
             for i, action in enumerate(actions):
                 target_f[i][action] = targets[i]
 
-            history = self.model.fit(states, target_f, epochs=1, verbose=0, batch_size=batch_size)
+            # Convert target_f to tensor
+            target_f_tensor = tf.convert_to_tensor(target_f, dtype=tf.float32)
+
+            # Use the decorated training function
+            loss = self.train_step(states_tensor, target_f_tensor)
 
         self.step_counter += 1
         if self.step_counter % self.update_target_frequency == 0:
@@ -110,7 +155,7 @@ class DQNAgent:
         if self.epsilon > self.epsilon_min:
             self.epsilon *= self.epsilon_decay
 
-        return history.history['loss'][0] if 'loss' in history.history else None
+        return loss.numpy() if hasattr(loss, 'numpy') else loss
 
     def save_model(self, path):
         self.model.save(path.replace('.h5', '.keras'))

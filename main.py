@@ -42,6 +42,7 @@ def main():
     clock = pygame.time.Clock()
     bot_thinking = False
 
+
     def handle_bot_turn(bot, player):
         nonlocal bot_pass_message, bot_pass_time, move_count, bot_thinking
         if bot is None:
@@ -51,9 +52,8 @@ def main():
         state = game.get_state()
         state = np.reshape(state, [1, board_size, board_size, 1])
 
-        # Thêm biến đếm thời gian và số lần thử
         start_time = time.time()
-        max_attempts = board_size * board_size  # Số lần thử tối đa
+        max_attempts = board_size * board_size
         attempts = 0
 
         invalid_moves = []
@@ -82,7 +82,6 @@ def main():
                             can_capture = True
                             break
 
-                # Hoàn trả lại trạng thái ban đầu
                 game.board.board[y][x] = None
 
                 if can_capture:
@@ -90,7 +89,6 @@ def main():
                     action = y * board_size + x
                     priority_moves.append(action)
 
-        # Chạy dự đoán trong luồng chính để tránh lỗi tensor
         while attempts < max_attempts and time.time() - start_time < 10.0:  # Giới hạn 10 giây
             # Nếu có nước đi ưu tiên, chọn một trong số đó
             if priority_moves:
@@ -173,7 +171,6 @@ def main():
                             can_capture = True
                             break
 
-                # Hoàn trả lại trạng thái ban đầu
                 game.board.board[y][x] = None
 
                 # Nếu nước đi này ăn được quân đối phương, ưu tiên chọn
@@ -183,7 +180,6 @@ def main():
                 # Nếu vượt qua tất cả các kiểm tra, đây là nước đi hợp lệ
                 break
 
-        # Nếu hết thời gian hoặc đã thử tất cả vị trí mà không tìm được nước đi hợp lệ
         if attempts >= max_attempts or time.time() - start_time >= 10.0 or action in invalid_moves:
             game.make_move('pass')
             bot_pass_message = f"Bot {player.capitalize()} PASSED! (timeout)"
