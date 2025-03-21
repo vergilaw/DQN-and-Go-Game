@@ -6,13 +6,168 @@ from tensorflow.keras.layers import Dense, Flatten, Conv2D, Input
 from tensorflow.keras.optimizers import Adam
 import tensorflow as tf
 import os
+import math
+import copy
+from threading import Lock
+import pickle
+
+class MCTSNode:
+    def __init__(self, state, parent=None, action=None, prior=0):
+        self.state = state
+        self.parent = parent
+        self.action = action
+        self.children = {}
+        self.visits = 0
+        self.value_sum = 0
+        self.prior = prior
+
+    def value(self):
+        if self.visits == 0:
+            return 0
+        return self.value_sum / self.visits
+
+    def is_expanded(self):
+        return len(self.children) > 0
+
+    def select_child(self, c_puct=1.0):
+        best_score = -float('inf')
+        best_action = None
+        for action, child in self.children.items():
+            exploration = (c_puct * child.prior * math.sqrt(self.visits) / (1 + child.visits)
+                           if self.visits > 0 else 0)
+            score = child.value() + exploration
+            if score > best_score:
+                best_score = score
+                best_action = action
+        return best_action, self.children[best_action]
+
+    def expand(self, actions, action_priors):
+        for action, prior in zip(actions, action_priors):
+            if action not in self.children:
+                self.children[action] = MCTSNode(
+                    state=None, parent=self, action=action, prior=prior
+                )
+
+    def update(self, value):
+        self.visits += 1
+        self.value_sum += value
+
+class MCTS:
+    def __init__(self, model, board_size, num_simulations=50, c_puct=1.0, temperature=1.0):
+        self.model = model
+        self.board_size = board_size
+        self.num_simulations = num_simulations
+        self.c_puct = c_puct
+        self.temperature = temperature
+        self.game = None
+
+    def search(self, state, game):
+        self.game = game
+        root = MCTSNode(state)
+        valid_actions = self._get_valid_actions(state, game)
+        if not valid_actions:
+            return self.board_size * self.board_size, np.array([1.0])
+        action_priors = self._get_action_priors(state, valid_actions)
+        root.expand(valid_actions, action_priors)
+        for _ in range(self.num_simulations):
+            node = root
+            search_path = [node]
+            game_copy = self._copy_game(game)
+            current_player = game.current_player
+            while node.is_expanded():
+                action, node = node.select_child(self.c_puct)
+                self._apply_action(game_copy, action)
+                search_path.append(node)
+            game_over, value = self._is_terminal(game_copy)
+            if not game_over:
+                next_state = self._get_state(game_copy)
+                valid_actions = self._get_valid_actions(next_state, game_copy)
+                if valid_actions:
+                    action_priors = self._get_action_priors(next_state, valid_actions)
+                    node.expand(valid_actions, action_priors)
+                    value = self._evaluate(next_state)
+                else:
+                    value = 0
+            for node in reversed(search_path):
+                node.update(value if current_player == game.current_player else -value)
+        actions = list(root.children.keys())
+        visits = [root.children[action].visits for action in actions]
+        if self.temperature == 0:
+            action_idx = np.argmax(visits)
+            probs = np.zeros(len(actions))
+            probs[action_idx] = 1.0
+        else:
+            visits = np.array(visits) ** (1.0 / self.temperature)
+            probs = visits / np.sum(visits)
+        return actions[np.argmax(probs)], probs
+
+    def _get_valid_actions(self, state, game):
+        valid_actions = [self.board_size * self.board_size]
+        for y in range(self.board_size):
+            for x in range(self.board_size):
+                action = y * self.board_size + x
+                if (game.board.board[y][x] is None and
+                        not game.would_be_suicide(x, y) and
+                        not game.is_ko(x, y)):
+                    valid_actions.append(action)
+        return valid_actions
+
+    def _copy_game(self, game):
+        return copy.deepcopy(game)
+
+    def _apply_action(self, game, action):
+        if action == self.board_size * self.board_size:
+            game.make_move('pass')
+        else:
+            x, y = divmod(action, self.board_size)
+            game.make_move((x, y))
+
+    def _get_state(self, game):
+        return game.get_state()
+
+    def _is_terminal(self, game):
+        if game.pass_count >= 2:
+            scores = game.calculate_score()
+            if scores['black'] > scores['white']:
+                return True, 1 if game.current_player == 'black' else -1
+            elif scores['white'] > scores['black']:
+                return True, 1 if game.current_player == 'white' else -1
+            else:
+                return True, 0
+        return False, 0
+
+    def _get_action_priors(self, state, valid_actions):
+        state_tensor = self._prepare_state(state)
+        q_values = self.model.predict(state_tensor, verbose=0)[0]
+        valid_q_values = [q_values[action] for action in valid_actions]
+        return self._softmax(valid_q_values)
+
+    def _softmax(self, x):
+        x = np.array(x)
+        exp_x = np.exp(x - np.max(x))
+        return exp_x / exp_x.sum()
+
+    def _prepare_state(self, state):
+        if isinstance(state, np.ndarray):
+            if len(state.shape) == 2:
+                return np.expand_dims(state, axis=(0, -1))
+            elif len(state.shape) == 3:
+                return np.expand_dims(state, axis=0)
+        return state
+
+    def _evaluate(self, state):
+        state_tensor = self._prepare_state(state)
+        q_values = self.model.predict(state_tensor, verbose=0)[0]
+        return np.max(q_values)
 
 
 class DQNAgent:
-    def __init__(self, board_size=19, model_path=None):
+    def __init__(self, board_size=19, model_path=None, use_mcts=True, mcts_simulations=50):
         self.board_size = board_size
         self.action_size = board_size * board_size + 1
         self.memory = deque(maxlen=5000)
+        self.memory_lock = Lock()
+        self.model_lock = Lock()
         self.gamma = 0.98
         self.epsilon = 1.0
         self.epsilon_min = 0.05
@@ -20,8 +175,9 @@ class DQNAgent:
         self.learning_rate = 0.001
         self.update_target_frequency = 500
         self.step_counter = 0
+        self.use_mcts = use_mcts
+        self.mcts_simulations = mcts_simulations
 
-        # GPU detection
         gpus = tf.config.list_physical_devices('GPU')
         if gpus:
             print(f"GPU detected: {gpus}")
@@ -41,6 +197,24 @@ class DQNAgent:
         self.target_model = self._build_model()
         self.update_target_model()
 
+        if self.use_mcts:
+            self.mcts = MCTS(
+                model=self.model,
+                board_size=self.board_size,
+                num_simulations=self.mcts_simulations,
+                c_puct=2.0,
+                temperature=1.0
+            )
+
+        self._tf_train_step = tf.function(
+            self._train_step,
+            input_signature=[
+                tf.TensorSpec(shape=[None, self.board_size, self.board_size, 1], dtype=tf.float32),
+                tf.TensorSpec(shape=[None, self.action_size], dtype=tf.float32)
+            ],
+            reduce_retracing=True
+        )
+
     def _build_model(self):
         model = Sequential()
         model.add(Input(shape=(self.board_size, self.board_size, 1)))
@@ -48,125 +222,122 @@ class DQNAgent:
         model.add(Conv2D(32, (3, 3), padding='same', activation='relu'))
         model.add(Conv2D(64, (3, 3), padding='same', activation='relu'))
         model.add(Flatten())
-        model.add(Dense(128, activation='relu'))
+        model.add(Dense(256, activation='relu'))
+        model.add(Dense(126, activation='relu'))
         model.add(Dense(self.action_size, activation='linear'))
-
-        # avoid exploding gradients
-        optimizer = Adam(learning_rate=self.learning_rate, clipnorm=1.0)
-        model.compile(loss='mse', optimizer=optimizer)
-
+        model.compile(loss='mse', optimizer=Adam(learning_rate=self.learning_rate))
         return model
 
     def update_target_model(self):
-        self.target_model.set_weights(self.model.get_weights())
-        print("Target model updated")
+        with self.model_lock:
+            self.target_model.set_weights(self.model.get_weights())
+        print(f"Target model updated. Current epsilon: {self.epsilon:.4f}")
 
     def remember(self, state, action, reward, next_state, done):
-        self.memory.append((state, action, reward, next_state, done))
+        for obj in (state, action, reward, next_state, done):
+            try:
+                pickle.dumps(obj)
+            except Exception as e:
+                print(f"Cannot pickle object: {obj}, type: {type(obj)}, error: {e}")
+        with self.memory_lock:
+            self.memory.append((state, action, reward, next_state, done))
 
-    # Add this new method with the @tf.function decorator
-    @tf.function(reduce_retracing=True)
-    def predict_action(self, state):
-        """Make predictions with the model using reduced retracing."""
-        return self.model(state, training=False)
+    def act(self, state, game=None):
+        if self.use_mcts and game and np.random.random() > self.epsilon:
+            self.mcts.game = game
+            action, _ = self.mcts.search(state[0, :, :, 0], game)
+            return action
+        if np.random.random() <= self.epsilon:
+            return np.random.randint(self.action_size)
+        with self.model_lock:
+            state_tensor = tf.convert_to_tensor(state, dtype=tf.float32)
+            state_tensor = tf.ensure_shape(state_tensor, [1, self.board_size, self.board_size, 1])
+            act_values = self.model(state_tensor, training=False)
+        return np.argmax(act_values.numpy()[0])
 
-    # Add this new method with the @tf.function decorator
-    @tf.function(reduce_retracing=True)
-    def predict_target(self, state):
-        """Make predictions with the target model using reduced retracing."""
-        return self.target_model(state, training=False)
-
-    def act(self, state, training=True):
-        if training and np.random.rand() <= self.epsilon:
-            return random.randrange(self.action_size)
-
-        # Ensure consistent tensor shape
-        if len(state.shape) == 2:  # If shape is (board_size, board_size)
-            state = np.expand_dims(np.expand_dims(state, axis=0), axis=-1)
-        elif len(state.shape) == 3:  # If shape is (board_size, board_size, 1)
-            state = np.expand_dims(state, axis=0)
-
-        # Convert to tensor
-        state_tensor = tf.convert_to_tensor(state, dtype=tf.float32)
-
-        with tf.device('/GPU:0' if tf.config.list_physical_devices('GPU') else '/CPU:0'):
-            # Use the decorated function instead of model.predict
-            act_values = self.predict_action(state_tensor)
-
-        return np.argmax(act_values[0])
-
-    # Add this method with the @tf.function decorator for training
-    @tf.function(reduce_retracing=True)
-    def train_step(self, states, target_f):
-        """Perform a single training step with reduced retracing."""
+    def _train_step(self, states, targets):
         with tf.GradientTape() as tape:
             predictions = self.model(states, training=True)
-            loss = tf.keras.losses.MSE(target_f, predictions)
-            # You can also use the following for a more direct approach:
-            # loss = tf.reduce_mean(tf.square(target_f - predictions))
-
+            loss_fn = tf.keras.losses.MeanSquaredError()
+            loss = loss_fn(targets, predictions)
         gradients = tape.gradient(loss, self.model.trainable_variables)
         self.model.optimizer.apply_gradients(zip(gradients, self.model.trainable_variables))
         return loss
 
-    def replay(self, batch_size=64):
-        if len(self.memory) < batch_size:
-            return
-
-        minibatch = random.sample(self.memory, batch_size)
-        states = np.vstack([item[0] for item in minibatch])
-        next_states = np.vstack([item[3] for item in minibatch])
-        actions = np.array([item[1] for item in minibatch])
-        rewards = np.array([item[2] for item in minibatch])
-        dones = np.array([item[4] for item in minibatch])
-
-        # Convert to tensors
-        states_tensor = tf.convert_to_tensor(states, dtype=tf.float32)
-        next_states_tensor = tf.convert_to_tensor(next_states, dtype=tf.float32)
-
-        with tf.device('/GPU:0' if tf.config.list_physical_devices('GPU') else '/CPU:0'):
-            # Use decorated functions instead of predict
-            q_values = self.predict_action(next_states_tensor)
-            best_actions = tf.argmax(q_values, axis=1).numpy()
-
-            target_q_values = self.predict_target(next_states_tensor)
-
-            # Calculate targets
-            targets = rewards + self.gamma * np.array([target_q_values[i, best_actions[i]].numpy() * (1 - dones[i])
-                                                       for i in range(batch_size)])
-
-            # Get current predictions for all actions
-            target_f = self.predict_action(states_tensor).numpy()
-
-            # Update only the actions that were taken
-            for i, action in enumerate(actions):
-                target_f[i][action] = targets[i]
-
-            # Convert target_f to tensor
-            target_f_tensor = tf.convert_to_tensor(target_f, dtype=tf.float32)
-
-            # Use the decorated training function
-            loss = self.train_step(states_tensor, target_f_tensor)
-
+    def replay(self, batch_size=32):
+        with self.memory_lock:
+            if len(self.memory) < batch_size:
+                return
+            minibatch = random.sample(self.memory, batch_size)
+        states = np.zeros((batch_size, self.board_size, self.board_size, 1))
+        targets = np.zeros((batch_size, self.action_size))
+        for i, (state, action, reward, next_state, done) in enumerate(minibatch):
+            with self.model_lock:
+                target = self.model.predict(state, verbose=0)[0]
+                if done:
+                    target[action] = reward
+                else:
+                    t = self.target_model.predict(next_state, verbose=0)[0]
+                    target[action] = reward + self.gamma * np.amax(t)
+            states[i] = state[0]
+            targets[i] = target
+        with self.model_lock:
+            self._tf_train_step(
+                tf.convert_to_tensor(states, dtype=tf.float32),
+                tf.convert_to_tensor(targets, dtype=tf.float32)
+            )
+        if self.epsilon > self.epsilon_min:
+            self.epsilon *= self.epsilon_decay
         self.step_counter += 1
         if self.step_counter % self.update_target_frequency == 0:
             self.update_target_model()
 
-        if self.epsilon > self.epsilon_min:
-            self.epsilon *= self.epsilon_decay
+    def load(self, name):
+        with self.model_lock:
+            self.model.load_weights(name)
+            self.target_model.load_weights(name)
 
-        return loss.numpy() if hasattr(loss, 'numpy') else loss
+    def save(self, name):
+        with self.model_lock:
+            self.model.save(name)
 
-    def save_model(self, path):
-        self.model.save(path.replace('.h5', '.keras'))
-        print(f"Model saved to {path.replace('.h5', '.keras')}")
+    def set_mcts_params(self, simulations=None, c_puct=None, temperature=None):
+        if not self.use_mcts:
+            print("MCTS is not enabled")
+            return
+        if simulations is not None:
+            self.mcts.num_simulations = simulations
+        if c_puct is not None:
+            self.mcts.c_puct = c_puct
+        if temperature is not None:
+            self.mcts.temperature = temperature
 
-    def load_model(self, path):
-        try:
-            self.model = load_model(path)
-            self.target_model = load_model(path)
-            print(f"Model loaded from {path}")
-            return True
-        except Exception as e:
-            print(f"Error loading model: {e}")
-            return False
+    def enable_mcts(self, enable=True, simulations=50):
+        self.use_mcts = enable
+        if enable and not hasattr(self, 'mcts'):
+            self.mcts = MCTS(
+                model=self.model,
+                board_size=self.board_size,
+                num_simulations=simulations,
+                c_puct=2.0,
+                temperature=1.0
+            )
+        elif enable:
+            self.mcts.num_simulations = simulations
+
+    def train_with_mcts(self, state, game, batch_size=32):
+        if not self.use_mcts:
+            return
+        action, probabilities = self.mcts.search(state[0, :, :, 0], game)
+        game_copy = copy.deepcopy(game)
+        if action == self.board_size * self.board_size:
+            game_copy.make_move('pass')
+        else:
+            x, y = divmod(action, self.board_size)
+            game_copy.make_move((x, y))
+        next_state = np.reshape(game_copy.get_state(), [1, self.board_size, self.board_size, 1])
+        reward = game_copy.get_reward(game.current_player)
+        done = game_copy.pass_count >= 2
+        self.remember(state, action, reward, next_state, done)
+        self.replay(batch_size)
+        return action

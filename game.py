@@ -69,12 +69,9 @@ class GoGame:
                         captured_stones = True
                         break
 
-            # Nếu nước đi này ăn được quân đối phương, thưởng lớn
             if captured_stones:
                 reward += 1.0
-            # Ngược lại, nếu đi vào lãnh thổ của chính mình mà không ăn được quân
             elif self.board.territory[y][x] == player:
-                # Kiểm tra xem có quân đối phương xung quanh không
                 has_opponent_nearby = False
                 for dx, dy in [(0, 1), (1, 0), (0, -1), (-1, 0)]:
                     nx, ny = x + dx, y + dy
@@ -83,20 +80,16 @@ class GoGame:
                         has_opponent_nearby = True
                         break
 
-                # Nếu không có quân đối phương xung quanh, phạt vì đi vào lãnh thổ không cần thiết
                 if not has_opponent_nearby:
                     reward -= 1.0
-                # Nếu có quân đối phương xung quanh, thưởng vì bảo vệ lãnh thổ
                 else:
                     reward += 0.2
 
-        # chặn đối phương xây dựng lãnh thổ
         if self.last_move:
             x, y = self.last_move
             if self.board.territory[y][x] == opponent:
                 reward += 0.3
 
-        # Phần thưởng khi bảo vệ quân của mình khỏi bị
         if self.last_move:
             x, y = self.last_move
             for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
@@ -106,7 +99,6 @@ class GoGame:
                     group = self.board.get_group(nx, ny)
                     liberties = self.board.count_liberties(group)
                     if liberties == 1:
-                        # last chi check
                         for gx, gy in group:
                             for gdx, gdy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
                                 liberty_x, liberty_y = gx + gdx, gy + gdy
@@ -114,7 +106,7 @@ class GoGame:
                                         0 <= liberty_y < self.board.size and
                                         self.board.board[liberty_y][liberty_x] is None and
                                         (liberty_x, liberty_y) == (x, y)):
-                                    reward += 0.4  # Thưởng khi cứu quân của mình khỏi bị ăn
+                                    reward += 0.4
                                     break
 
         return reward
