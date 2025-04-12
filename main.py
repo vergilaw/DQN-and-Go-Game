@@ -54,7 +54,7 @@ def main():
         message_duration = 2.0
         move_count = 0
         max_moves = board_size * board_size * 4
-        bot_delay = 0.5
+        bot_delay = 0.1
         clock = pygame.time.Clock()
         bot_thinking = False
         score_display_time = None
